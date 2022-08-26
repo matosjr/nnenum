@@ -27,6 +27,7 @@ from nnenum.network import (
 )
 from nnenum.settings import Settings
 from nnenum.util import Freezable
+from nnenum.zonotope import Zonotope
 
 
 class LinearOnnxSubnetworkLayer(Freezable):
@@ -47,8 +48,6 @@ class LinearOnnxSubnetworkLayer(Freezable):
         assert len(onnx_submodel.graph.output) == 1
 
         self.input_name = inputs[0].name
-
-        # print(onnx_submodel)
 
         self.model_str = onnx_submodel.SerializeToString()
         self.sess = ort.InferenceSession(self.model_str)
@@ -75,7 +74,23 @@ class LinearOnnxSubnetworkLayer(Freezable):
         self.zero_output = self.sess.run(None, input_map)[0]
         self.output_shape = self.zero_output.shape
 
+        inputsize = np.prod(shape)
+        outputsize = np.prod(self.output_shape)
+        zono = Zonotope(
+            np.zeros((inputsize,)), np.identity(inputsize), dtype=self.dtype
+        )
+        self.transform_zono(zono)
+        self.mat = np.array(zono.mat_t, dtype=np.float64)
+        self.bias = np.array(zono.center, dtype=np.float64)
         self.freeze_attrs()
+
+    def getMatMul(self, prev_layer_output_shape=None):
+        return MatMulLayer(
+            self.layer_num, self.mat, prev_layer_output_shape=prev_layer_output_shape
+        )
+
+    def getAdd(self):
+        return AddLayer(self.layer_num + 1, self.bias)
 
     def __str__(self):
         return f"[LinearOnnxSubnetworkLayer with input {self.get_input_shape()} and output {self.get_output_shape()}]"
@@ -89,6 +104,11 @@ class LinearOnnxSubnetworkLayer(Freezable):
         "get the output shape from this layer"
 
         return self.output_shape
+
+    def reinit_onnx_session(self):
+        "reinitailzie the onnx session"
+
+        self.sess = ort.InferenceSession(self.model_str)
 
     def transform_star(self, star):
         "transform the star"
@@ -121,6 +141,8 @@ class LinearOnnxSubnetworkLayer(Freezable):
     def transform_zono(self, zono):
         "transform the zono"
 
+        zono_copy = zono.deep_copy()
+
         cols = []
 
         for col in range(zono.mat_t.shape[1]):
@@ -129,7 +151,6 @@ class LinearOnnxSubnetworkLayer(Freezable):
             vec = nn_unflatten(vec, self.input_shape)
 
             res = self.execute(vec)
-
             res = res - self.zero_output
             res = nn_flatten(res)
 
@@ -256,8 +277,6 @@ def load_onnx_network_optimized(filename):
     # find the node with input "input"
     all_input_names = sum([[str(i) for i in n.input] for n in graph.node], [])
 
-    # print(f"all input names: {all_input_names}")
-
     all_initializer_names = [i.name for i in graph.initializer]
     all_output_names = sum([[str(o) for o in n.output] for n in graph.node], [])
 
@@ -300,21 +319,12 @@ def load_onnx_network_optimized(filename):
     onnx_type_int = 2
 
     while cur_node is not None:
-        assert cur_node.input[0] == cur_input_name, (
-            f"cur_node.input[0] ({cur_node.input[0]}) should be previous output ({cur_input_name}) in "
-            + f"node:\n{cur_node.name}"
-        )
+        assert (
+            cur_node.input[0] == cur_input_name
+        ), f"input[0] should be previous output {cur_input_name} in node {cur_node.name}"
 
         op = cur_node.op_type
         layer = None
-
-        if layers:
-            prev_shape = layers[-1].get_output_shape()
-        else:
-            s_node = graph.input[0].type.tensor_type.shape
-            prev_shape = tuple(
-                d.dim_value if d.dim_value != 0 else 1 for d in s_node.dim
-            )
 
         if op in ["Add", "Sub"]:
             assert len(cur_node.input) == 2
@@ -326,7 +336,7 @@ def load_onnx_network_optimized(filename):
             shape = tuple(
                 d for d in init.dims
             )  # note dims reversed, acasxu has 5, 50 but want 5 cols
-            b = nn_unflatten(b, shape, order="F")
+            b = nn_unflatten(b, shape)
 
             if op == "Sub":
                 b = -1 * b
@@ -334,13 +344,17 @@ def load_onnx_network_optimized(filename):
             layer = AddLayer(len(layers), b)
         elif op == "Flatten":
             assert cur_node.attribute[0].i == 1  # flatten along columns
+            if layers:
+                prev_shape = layers[-1].get_output_shape()
+            else:
+                s_node = graph.input[0].type.tensor_type.shape
+                prev_shape = tuple(d.dim_value for d in s_node.dim)
 
             layer = FlattenLayer(len(layers), prev_shape)
 
         elif op == "MatMul":
             assert len(cur_node.input) == 2
             init = init_map[cur_node.input[1]]
-
             assert init.data_type == onnx_type_float
 
             b = np.frombuffer(init.raw_data, dtype="<f4")  # little endian float32
@@ -348,14 +362,14 @@ def load_onnx_network_optimized(filename):
                 d for d in reversed(init.dims)
             )  # note dims reversed, acasxu has 5, 50 but want 5 cols
 
-            b = nn_unflatten(b, shape, order="F")
+            b = nn_unflatten(b, shape)
 
-            layer = MatMulLayer(len(layers), b, prev_shape)
+            layer = MatMulLayer(len(layers), b, layers[-1].get_output_shape())
 
         elif op == "Relu":
             assert layers, "expected previous layer before relu layer"
 
-            layer = ReluLayer(len(layers), prev_shape)
+            layer = ReluLayer(len(layers), layers[-1].get_output_shape())
         elif op == "Gemm":
             assert len(cur_node.input) == 3
 
@@ -370,7 +384,7 @@ def load_onnx_network_optimized(filename):
             shape = tuple(
                 d for d in reversed(weight_init.dims)
             )  # note dims reversed, acasxu has 5, 50 but want 5 cols
-            weight_mat = nn_unflatten(b, shape, order="F")
+            weight_mat = nn_unflatten(b, shape)
 
             # bias
             assert bias_init.data_type == onnx_type_float
@@ -378,7 +392,7 @@ def load_onnx_network_optimized(filename):
             shape = tuple(
                 d for d in reversed(bias_init.dims)
             )  # note dims reversed, acasxu has 5, 50 but want 5 cols
-            bias_vec = nn_unflatten(b, shape, order="F")
+            bias_vec = nn_unflatten(b, shape)
 
             for a in cur_node.attribute:
                 assert a.name in [
@@ -395,7 +409,9 @@ def load_onnx_network_optimized(filename):
                     assert a.i == 1
                     weight_mat = weight_mat.transpose().copy()
 
-            layer = FullyConnectedLayer(len(layers), weight_mat, bias_vec, prev_shape)
+            layer = FullyConnectedLayer(
+                len(layers), weight_mat, bias_vec, layers[-1].get_output_shape()
+            )
         else:
             assert False, f"unsupported onnx op_type {op} in node {cur_node.name}"
 
@@ -852,10 +868,14 @@ def load_onnx_network(filename):
             )
 
             l = LinearOnnxSubnetworkLayer(len(layers), submodel)
-            layers.append(l)
+            output_shape = None
+            if len(layers) > 0:
+                output_shape = layers[-1].get_output_shape()
+            layers.append(l.getMatMul(prev_layer_output_shape=output_shape))
+            layers.append(l.getAdd())
 
         end_shape = io_shapes[end_node]
-        l = ReluLayer(len(layers), end_shape)
+        l = ReluLayer(len(layers), layers[-1].get_output_shape())
         layers.append(l)
 
         prev_input = r.output[0]
@@ -872,6 +892,18 @@ def load_onnx_network(filename):
         )
 
         l = LinearOnnxSubnetworkLayer(len(layers), submodel)
-        layers.append(l)
+        output_shape = None
+        if len(layers) > 0:
+            output_shape = layers[-1].get_output_shape()
+        layers.append(l.getMatMul(prev_layer_output_shape=output_shape))
+        layers.append(l.getAdd())
 
     return NeuralNetwork(layers)
+
+
+def reinit_onnx_sessions(network):
+    "reinit onnx sessions in the network"
+
+    for l in network.layers:
+        if isinstance(l, LinearOnnxSubnetworkLayer):
+            l.reinit_onnx_session()

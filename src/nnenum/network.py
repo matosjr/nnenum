@@ -211,7 +211,9 @@ class ReluLayer(Freezable):
                     if not self.filter_func(i):
                         continue
 
-                branch_list.append(val >= 0)
+                branch_list.append(
+                    val > 0 if val != 0 else None
+                )  # Handle 0 as special case
 
         if self.filter_func is None:
             state = np.clip(state, 0, np.inf)
@@ -901,13 +903,14 @@ def images_to_init_box(min_image, max_image):
     return rv
 
 
-def nn_flatten(image, order="C"):
+def nn_flatten(image):
     "flatten a multichannel image to a 1-d array"
 
-    return image.flatten(order)
+    # note: fortran-style flattening makes Tran's example network classify correctly, so I guess it's the standard
+    return image.flatten("F")
 
 
-def nn_unflatten(image, shape, order="C"):
+def nn_unflatten(image, shape):
     """unflatten to a multichannel image from a 1-d array
 
     this uses reshape, so may not be a copy
@@ -915,7 +918,7 @@ def nn_unflatten(image, shape, order="C"):
 
     assert len(image.shape) == 1
 
-    rv = image.reshape(shape, order=order)
+    rv = image.reshape(shape, order="F")
 
     return rv
 

@@ -82,7 +82,7 @@ def set_exact_settings():
 def set_image_settings():
     "set settings for larger image benchmarks"
 
-    Settings.COMPRESS_INIT_BOX = True
+    Settings.COMPRESS_INIT_BOX = False
     Settings.BRANCH_MODE = Settings.BRANCH_OVERAPPROX
     Settings.TRY_QUICK_OVERAPPROX = False
 
