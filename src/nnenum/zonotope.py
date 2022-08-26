@@ -1,5 +1,5 @@
 """
-Zonotope nnenum implementation
+Zonotope performance tests
 
 Stanley Bak
 """
@@ -43,13 +43,16 @@ def zono_from_compressed_init_box(init_bm, init_bias, init_box):
 class Zonotope(Freezable):
     "zonotope class"
 
-    def __init__(self, center, gen_mat_t, init_bounds=None):
+    def __init__(self, center, gen_mat_t, init_bounds=None, dtype=None):
         """
         gen_mat_t has one generator per COLUMN
 
         init_bounds for a traditional zonotope is [-1, 1]
         """
-
+        if dtype is None:
+            dtype = np.float64
+        center = np.array(center, dtype=dtype)
+        gen_mat_t = np.array(gen_mat_t, dtype=dtype)
         if center is not None:
             self.dtype = center.dtype
             assert isinstance(center, np.ndarray)
@@ -189,6 +192,17 @@ class Zonotope(Freezable):
             self.neg1_gens[i] = lb
             self.pos1_gens[i] = ub
 
+    def add_dimension(self, l, u):
+        i = len(self.init_bounds)
+        self.init_bounds.append((0, 0))
+        self.neg1_gens = None
+        self.pos1_gens = None
+        self.mat_t = np.hstack(
+            (self.mat_t, np.zeros((self.mat_t.shape[0], 1), dtype=self.dtype))
+        )
+        self.update_init_bounds(i, (l, u), skip_check=True)
+        return i
+
     def maximize(self, vector):
         "get the maximum point of the zonotope in the passed-in direction"
 
@@ -232,17 +246,25 @@ class Zonotope(Freezable):
 
         # Timers.toc('loop')
 
-        if self.init_bounds_nparray is None:
-            self.init_bounds_nparray = np.array(self.init_bounds, dtype=self.dtype)
-
-        ib = self.init_bounds_nparray
-
-        res = np.where(res_vec <= 0, ib[:, 1], ib[:, 0])
-
-        rv += res.dot(res_vec)
+        rv += self.minimize_box(res_vec)
 
         Timers.toc("zonotope.minimize_val")
 
+        return rv
+
+    def minimize_box(self, vector):
+        """
+        Minimize in init_bounds box in direction of vector
+        :param vector:
+        :return:
+        """
+        Timers.tic("zonotope.minimize_box")
+        if self.init_bounds_nparray is None:
+            self.init_bounds_nparray = np.array(self.init_bounds, dtype=self.dtype)
+        ib = self.init_bounds_nparray
+        res = np.where(vector <= 0, ib[:, 1], ib[:, 0])
+        rv = res.dot(vector)
+        Timers.toc("zonotope.minimize_box")
         return rv
 
     def box_bounds(self):
@@ -375,6 +397,7 @@ class Zonotope(Freezable):
 
         for d, lb, ub in tuple_list:
             self.update_init_bounds(d, (lb, ub))
+        return tuple_list
 
     def contract_domain_new(self, hyperplane_vec, rhs):
         """intersect the initial box with the given halfspace, trying to shrink it
@@ -395,56 +418,44 @@ class Zonotope(Freezable):
         assert (
             len(hyperplane_vec) == dims
         ), f"dims in init_bounds is {dims}, hyperplane dims is {len(hyperplane_vec)}"
-        ib = self.init_bounds
+        if self.init_bounds_nparray is None:
+            self.init_bounds_nparray = np.array(self.init_bounds)
+        ib = self.init_bounds_nparray
 
-        sat_corner_list = [
-            ib[d][0] if hyperplane_vec[d] > 0 else ib[d][1] for d in range(dims)
-        ]
-        unsat_corner_list = [
-            ib[d][1] if hyperplane_vec[d] > 0 else ib[d][0] for d in range(dims)
-        ]
+        sat_corner_list = np.where(hyperplane_vec > 0, ib[:, 0], ib[:, 1])
+        unsat_corner_list = np.where(hyperplane_vec > 0, ib[:, 1], ib[:, 0])
+
+        assert (
+            np.dot(sat_corner_list, hyperplane_vec) < rhs
+        ), "contract_domain_new executed on non intersecting hyperspace"
 
         # construct matrix of sat corners
-        sat_corner_matrix = np.array([sat_corner_list] * dims, dtype=self.dtype)
+        sat_corner_matrix = np.tile(sat_corner_list, (dims, 1))
 
-        for d in range(dims):
-            sat_corner_matrix[d, d] = unsat_corner_list[d]
+        np.fill_diagonal(sat_corner_matrix, unsat_corner_list)
 
         # do it as matrix-vec mult
         dot_res = sat_corner_matrix.dot(hyperplane_vec)
 
-        for d in range(dims):
-            # make sure it's nonzero
+        dont_skip_dim = np.nonzero(
+            np.logical_or(hyperplane_vec > 1e-6, hyperplane_vec < -1e-6)
+        )[0]
+        updated_dimensions = np.nonzero(dot_res[dont_skip_dim] > rhs)[0]
 
-            # todo: test the effect of removing this? division by k... better to keep here
-            if abs(hyperplane_vec[d]) < 1e-6:
-                continue
-
-            # old_sat_corner_d = sat_corner[d]
-            # sat_corner[d] = unsat_corner[d]
-
-            # sat_corner is now potentially unsat
-            # lhs = np.dot(sat_corner, hyperplane_vec)
+        for pos in updated_dimensions:
+            d = int(dont_skip_dim[pos])
             lhs = dot_res[d]
+            tot = lhs - unsat_corner_list[d] * hyperplane_vec[d]
 
-            if lhs > rhs:
-                # constraint is tighter! find the new bound
-                # sat_corner[d] = 0
-                # tot = np.dot(sat_corner, hyperplane_vec)
-                tot = lhs - unsat_corner_list[d] * hyperplane_vec[d]
+            k = hyperplane_vec[d]
+            solved_rhs = (rhs - tot) / k
 
-                k = hyperplane_vec[d]
-                solved_rhs = (rhs - tot) / k
-
-                if k > 0:
-                    # change ub to solved_rhs
-                    rv.append((d, ib[d][0], solved_rhs))
-                else:
-                    # change lb to solved_rhs
-                    rv.append((d, solved_rhs, ib[d][1]))
-
-            # restore sat_corner[d]
-            # sat_corner[d] = old_sat_corner_d
+            if k > 0:
+                # change ub to solved_rhs
+                rv.append((d, ib[d][0], solved_rhs))
+            else:
+                # change lb to solved_rhs
+                rv.append((d, solved_rhs, ib[d][1]))
 
         Timers.toc("contract domain")
 
