@@ -1,25 +1,25 @@
-'''
+"""
 vnnlib simple utilities
 
 Stanley Bak
 June 2021
-'''
+"""
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 
 import numpy as np
-
-import onnxruntime as ort
 import onnx
+import onnxruntime as ort
+
 
 def read_statements(vnnlib_filename):
-    '''process vnnlib and return a list of strings (statements)
+    """process vnnlib and return a list of strings (statements)
 
     useful to get rid of comments and blank lines and combine multi-line statements
-    '''
+    """
 
-    with open(vnnlib_filename, 'r') as f:
+    with open(vnnlib_filename, "r") as f:
         lines = f.readlines()
 
     lines = [line.strip() for line in lines]
@@ -28,31 +28,31 @@ def read_statements(vnnlib_filename):
     # combine lines if case a single command spans multiple lines
     open_parentheses = 0
     statements = []
-    current_statement = ''
-    
+    current_statement = ""
+
     for line in lines:
-        comment_index = line.find(';')
+        comment_index = line.find(";")
 
         if comment_index != -1:
             line = line[:comment_index].rstrip()
-        
+
         if not line:
             continue
 
-        new_open = line.count('(')
-        new_close = line.count(')')
+        new_open = line.count("(")
+        new_close = line.count(")")
 
         open_parentheses += new_open - new_close
 
         assert open_parentheses >= 0, "mismatched parenthesis in vnnlib file"
 
         # add space
-        current_statement += ' ' if current_statement else ''
+        current_statement += " " if current_statement else ""
         current_statement += line
 
         if open_parentheses == 0:
             statements.append(current_statement)
-            current_statement = ''
+            current_statement = ""
 
     if current_statement:
         statements.append(current_statement)
@@ -61,26 +61,28 @@ def read_statements(vnnlib_filename):
     statements = [" ".join(s.split()) for s in statements]
 
     # remove space after '('
-    statements = [s.replace('( ', '(') for s in statements]
+    statements = [s.replace("( ", "(") for s in statements]
 
     # remove space after ')'
-    statements = [s.replace(') ', ')') for s in statements]
+    statements = [s.replace(") ", ")") for s in statements]
 
     return statements
 
+
 def update_rv_tuple(rv_tuple, op, first, second, num_inputs, num_outputs):
     'update tuple from rv in read_vnnlib_simple, with the passed in constraint "(op first second)"'
-    
+
     if first.startswith("X_"):
         # Input constraints
         index = int(first[2:])
 
-        assert not second.startswith("X") and not second.startswith("Y"), \
-                                     f"input constraints must be box ({op} {first} {second})"
+        assert not second.startswith("X") and not second.startswith(
+            "Y"
+        ), f"input constraints must be box ({op} {first} {second})"
         assert 0 <= index < num_inputs
 
         limits = rv_tuple[0][index]
-        
+
         if op == "<=":
             limits[1] = min(float(second), limits[1])
         else:
@@ -118,15 +120,17 @@ def update_rv_tuple(rv_tuple, op, first, second, num_inputs, num_outputs):
         mat.append(row)
         rhs_list.append(rhs)
 
+
 def make_input_box_dict(num_inputs):
-    'make a dict for the input box'
+    "make a dict for the input box"
 
     rv = {i: [-np.inf, np.inf] for i in range(num_inputs)}
 
     return rv
 
+
 def get_io_nodes(onnx_model):
-    'returns 3 -tuple: input node, output nodes, input dtype'
+    "returns 3 -tuple: input node, output nodes, input dtype"
 
     sess = ort.InferenceSession(onnx_model.SerializeToString())
     inputs = [i.name for i in sess.get_inputs()]
@@ -149,14 +153,19 @@ def get_io_nodes(onnx_model):
 
     return inp, out, dtype
 
+
 def get_num_inputs_outputs(onnx_filename):
-    'get num inputs, num outputs, and input dtype of an onnx file'
+    "get num inputs, num outputs, and input dtype of an onnx file"
 
     onnx_model = onnx.load(onnx_filename)
     inp, out, inp_dtype = get_io_nodes(onnx_model)
-    
-    inp_shape = tuple(d.dim_value if d.dim_value != 0 else 1 for d in inp.type.tensor_type.shape.dim)
-    out_shape = tuple(d.dim_value if d.dim_value != 0 else 1 for d in out.type.tensor_type.shape.dim)
+
+    inp_shape = tuple(
+        d.dim_value if d.dim_value != 0 else 1 for d in inp.type.tensor_type.shape.dim
+    )
+    out_shape = tuple(
+        d.dim_value if d.dim_value != 0 else 1 for d in out.type.tensor_type.shape.dim
+    )
 
     num_inputs = 1
     num_outputs = 1
@@ -169,17 +178,18 @@ def get_num_inputs_outputs(onnx_filename):
 
     return num_inputs, num_outputs, inp_dtype
 
+
 def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
-    '''process in a vnnlib file. You can get num_inputs and num_outputs using get_num_inputs_outputs().
+    """process in a vnnlib file. You can get num_inputs and num_outputs using get_num_inputs_outputs().
 
     this is not a general parser, and assumes files are provided in a 'nice' format. Only a single disjunction
     is allowed
 
     output a list containing 2-tuples:
         1. input ranges (box), list of pairs for each input variable
-        2. specification, provided as a list of pairs (mat, rhs), as in: mat * y <= rhs, where y is the output. 
+        2. specification, provided as a list of pairs (mat, rhs), as in: mat * y <= rhs, where y is the output.
                           Each element in the list is a term in a disjunction for the specification.
-    '''
+    """
 
     # example: "(declare-const X_0 Real)"
     regex_declare = re.compile(r"^\(declare-const (X|Y)_(\S+) Real\)$")
@@ -190,7 +200,7 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
 
     # example: "(and (<= Y_0 Y_2)(<= Y_1 Y_2))"
     dnf_clause_str = r"\(and (" + comparison_str + r")+\)"
-    
+
     # example: "(assert (<= Y_0 Y_1))"
     regex_simple_assert = re.compile(r"^\(assert " + comparison_str + r"\)$")
 
@@ -198,13 +208,13 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
     # (assert (or (and (<= Y_3 Y_0)(<= Y_3 Y_1)(<= Y_3 Y_2))(and (<= Y_4 Y_0)(<= Y_4 Y_1)(<= Y_4 Y_2))))
     regex_dnf = re.compile(r"^\(assert \(or (" + dnf_clause_str + r")+\)\)$")
 
-    rv = [] # list of 3-tuples, (box-dict, mat, rhs)
+    rv = []  # list of 3-tuples, (box-dict, mat, rhs)
     rv.append((make_input_box_dict(num_inputs), [], []))
-    
+
     lines = read_statements(vnnlib_filename)
 
     for line in lines:
-        #print(f"Line: {line}")
+        # print(f"Line: {line}")
 
         if len(regex_declare.findall(line)) > 0:
             continue
@@ -217,15 +227,15 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
 
             for rv_tuple in rv:
                 update_rv_tuple(rv_tuple, op, first, second, num_inputs, num_outputs)
-                
+
             continue
 
         ################
         groups = regex_dnf.findall(line)
         assert groups, f"failed parsing line: {line}"
-        
+
         tokens = line.replace("(", " ").replace(")", " ").split()
-        tokens = tokens[2:] # skip 'assert' and 'or'
+        tokens = tokens[2:]  # skip 'assert' and 'or'
 
         conjuncts = " ".join(tokens).split("and")[1:]
 
@@ -236,15 +246,17 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
             for c in conjuncts:
                 rv_tuple_copy = deepcopy(rv_tuple)
                 rv.append(rv_tuple_copy)
-                
+
                 c_tokens = [s for s in c.split(" ") if len(s) > 0]
 
                 count = len(c_tokens) // 3
 
                 for i in range(count):
-                    op, first, second = c_tokens[3*i:3*(i+1)]
+                    op, first, second = c_tokens[3 * i : 3 * (i + 1)]
 
-                    update_rv_tuple(rv_tuple_copy, op, first, second, num_inputs, num_outputs)
+                    update_rv_tuple(
+                        rv_tuple_copy, op, first, second, num_inputs, num_outputs
+                    )
 
     # merge elements of rv with the same input spec
     merged_rv = {}
@@ -253,7 +265,9 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
         boxdict = rv_tuple[0]
         matrhs = (rv_tuple[1], rv_tuple[2])
 
-        key = str(boxdict) # merge based on string representation of input box... accurate enough for now
+        key = str(
+            boxdict
+        )  # merge based on string representation of input box... accurate enough for now
 
         if key in merged_rv:
             merged_rv[key][1].append(matrhs)
@@ -265,7 +279,7 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
 
     for rv_tuple in merged_rv.values():
         box_dict = rv_tuple[0]
-        
+
         box = []
 
         for d in range(num_inputs):
@@ -273,7 +287,7 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
 
             assert r[0] != -np.inf and r[1] != np.inf, f"input X_{d} was unbounded: {r}"
             box.append(r)
-            
+
         spec_list = []
 
         for matrhs in rv_tuple[1]:
@@ -283,8 +297,7 @@ def read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs):
 
         final_rv.append((box, spec_list))
 
-    #for i, (box, spec_list) in enumerate(final_rv):
+    # for i, (box, spec_list) in enumerate(final_rv):
     #    print(f"-----\n{i+1}. {box}\nspec:{spec_list}")
-        
-    return final_rv
 
+    return final_rv
