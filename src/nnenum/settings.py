@@ -24,6 +24,16 @@ class Settings(metaclass=FreezableMeta):
     SPLIT_LARGEST, SPLIT_ONE_NORM, SPLIT_SMALLEST, SPLIT_INORDER = range(
         4
     )  # used for SPLIT_ORDER
+    EQUIV_STRATEGIES = [
+        "DONT",
+        "CEGAR",
+        "SECOND_NET",
+        "REFINE_UNTIL_MAX",
+        "REFINE_UNTIL_95P",
+        "REFINE_UNTIL_LAST",
+        "REFINE_UNTIL_LAST_OPTIMISTIC1",
+        "REFINE_UNTIL_LAST_OPTIMISTIC2",
+    ]
     # TODO: one norm should acutally be called inf norm
 
     @classmethod
@@ -63,7 +73,6 @@ class Settings(metaclass=FreezableMeta):
         cls.TIMING_STATS = False  # compute and print detailed timing stats
 
         cls.CHECK_SINGLE_THREAD_BLAS = True
-        # idea... replace this with threadpoolctl: https://github.com/joblib/threadpoolctl
 
         cls.UPDATE_SHARED_VARS_INTERVAL = (
             0.05  # interval for each thread to update shared state
@@ -79,7 +88,6 @@ class Settings(metaclass=FreezableMeta):
         cls.CONTRACT_LP_TRACK_WITNESSES = (
             True  # track box bounds witnesses to reduce LP solving
         )
-        cls.CONTRACT_LP_CHECK_EPSILON = 1e-4  # numerical error tolerated when doing contractions before error, None=skip
 
         # the types of overapproximation to use in each round
         cls.OVERAPPROX_TYPES = [
@@ -143,13 +151,6 @@ class Settings(metaclass=FreezableMeta):
         cls.SKIP_COMPRESSED_CHECK = (
             False  # sanity check for compressed inputs when COMPRESS_INIT_BOX is False
         )
-        ####
-        cls.UNDERFLOW_BEHAVIOR = (
-            "raise"  # np.seterr behavior for floating-point underflow
-        )
-        cls.SKIP_CONSTRAINT_NORMALIZATION = (
-            False  # disable constraint normalization in LP (may reduce stability)
-        )
 
         ####
         cls.NUM_LP_PROCESSES = 1  # if > 1, then force multiprocessing during lp step
@@ -173,8 +174,6 @@ class Settings(metaclass=FreezableMeta):
             "Shape",
             "Sub",
             "Unsqueeze",
-            "Slice",
-            "Dropout",
         ]
 
         cls.ONNX_BLACKLIST = [
@@ -183,3 +182,30 @@ class Settings(metaclass=FreezableMeta):
             "Sigmoid",
             "Tanh",
         ]  # unsupported nonlinear laters
+
+        ###
+        # settings for adversarial generation
+        cls.ADVERSARIAL_TRY_QUICK = (
+            True  # if settings are provided, try quick adversrial generation at start
+        )
+        cls.ADVERSARIAL_QUICK_NUM_ATTEMPTS = 10  # how many attempts
+        cls.ADVERSARIAL_IN_WORKERS = True  # do lots of attempted adversarial generation until more work is produced
+        cls.ADVERSARIAL_WORKERS_MAX_ITER = 100  # how many attempts workers should make
+        cls.ADVERSARIAL_TEST_ABSTRACT_VIO = True  # try executing abstract violations
+        cls.ADVERSARIAL_SEED_ABSTRACT_VIO = (
+            False  # try adversarial examples seeded from abstract violations
+        )
+
+        cls.ADVERSARIAL_ONNX_PATH = (
+            None  # path to .onnx file with corresponidng .onnx.pb file
+        )
+        cls.ADVERSARIAL_EPSILON = None
+        cls.ADVERSARIAL_ORIG_IMAGE = None
+        cls.ADVERSARIAL_ORIG_LABEL = None
+        cls.ADVERSARIAL_TARGET = None  # can optionally be set to specific class, default: any misclassification
+
+        # EQUIV
+        # 'DONT', 'CEGAR', 'SECOND_NET', 'REFINE_UNTIL_MAX', 'REFINE_UNTIL_95P', 'REFINE_UNTIL_LAST'
+        cls.EQUIV_OVERAPPROX_STRAT = "REFINE_UNTIL_MAX"
+        cls.EQUIV_OVERAPPROX_STRAT_MOVING_WINDOW = 300
+        cls.EQUIV_OVERAPPROX_STRAT_REFINE_UNTIL = False

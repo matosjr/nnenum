@@ -49,19 +49,23 @@ def _find_two_points(dims, supp_point_func):
         vec = np.array([-1 if i == d else 0 for i in range(dims)], dtype=float)
 
         # try min
-        p1 = supp_point_func(vec)
+        p = supp_point_func(vec)
         assert (
-            len(p1) == dims
-        ), f"support fuction returned {len(p1)}-dimensional point, expected {dims}-d"
+            len(p) == dims
+        ), f"support fuction returned {len(p)}-dimensional point, expected {dims}-d"
 
-        pts = [p1]
+        if not pts:
+            pts.append(p)
+        elif not np.allclose(p, pts[0]):
+            pts.append(p)
+            break
 
         # try max
         vec = np.array([1 if i == d else 0 for i in range(dims)], dtype=float)
-        p2 = supp_point_func(vec)
+        p = supp_point_func(vec)
 
-        if not np.allclose(p1, p2):
-            pts = [p1, p2]
+        if not np.allclose(p, pts[0]):
+            pts.append(p)
             break
 
     return pts

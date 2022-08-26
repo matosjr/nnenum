@@ -14,8 +14,8 @@ from nnenum.timerutil import Timers
 from nnenum.util import Freezable
 
 
-def try_quick_overapprox(ss, network, spec, start_time):
-    "try a quick overapproximation, return is_safe, concrete_io_tuple"
+def try_quick_overapprox(ss, network, spec, start_time, found_adv):
+    "try a quick overapproximation, return True if safe"
 
     Timers.tic("try_quick_overapprox")
 
@@ -28,6 +28,9 @@ def try_quick_overapprox(ss, network, spec, start_time):
 
         if diff > Settings.TIMEOUT:
             raise OverapproxCanceledException("timeout exceeded")
+
+        if found_adv is not None and found_adv.value != 0:
+            raise OverapproxCanceledException("found_adv was set")
 
     try:
         check_cancel_func()
@@ -141,6 +144,8 @@ def check_round(ss, sets, spec_arg, check_cancel_func=None):
             if isinstance(s, StarOverapprox) and not single_safe:
                 violation_star = s.violation_star
 
+            # print(f".check_round checking spec with set {s}, result: {single_safe}")
+
             if single_safe:
                 if ss.safe_spec_list is not None:
                     ss.safe_spec_list[i] = True
@@ -232,7 +237,7 @@ def test_abstract_violation(dims, vstars, vindices, network, spec):
         rows.append(sum_row)
 
         for row in rows:
-            # this one is almost free since objective direction is None
+            # this one is alsmost free since objective direction is None
             cinput, coutput = vstar.minimize_vec(None, return_io=True)
             assert cur_spec.is_violation(coutput, tol_rhs=1e-4)
 
@@ -287,6 +292,7 @@ def do_overapprox_rounds(
     check_cancel_func=None,
     gen_limit=np.inf,
     overapprox_types=None,
+    try_seeded_adversarial=None,
 ):
     """do the multi-round overapproximation analysis
 
@@ -356,12 +362,24 @@ def do_overapprox_rounds(
         if rv.is_safe:
             break
 
-        if vstars:
+        if vstars and (
+            Settings.ADVERSARIAL_TEST_ABSTRACT_VIO
+            or Settings.ADVERSARIAL_SEED_ABSTRACT_VIO
+        ):
             dims = ss.star.lpi.get_num_cols()
 
-            _abstract_ios, rv.concrete_io_tuple = test_abstract_violation(
-                dims, vstars, vindices, network, spec
-            )
+            if Settings.ADVERSARIAL_TEST_ABSTRACT_VIO:
+                abstract_ios, rv.concrete_io_tuple = test_abstract_violation(
+                    dims, vstars, vindices, network, spec
+                )
+
+            if (
+                rv.concrete_io_tuple is None
+                and Settings.ADVERSARIAL_SEED_ABSTRACT_VIO
+                and Settings.ADVERSARIAL_ONNX_PATH
+                and try_seeded_adversarial
+            ):
+                rv.concrete_io_tuple = try_seeded_adversarial(dims, abstract_ios)
 
         if first_round:
             first_round = False
@@ -399,6 +417,9 @@ def run_overapprox_round(network, ss_init, sets, prerelu_sims, check_cancel_func
     )  # no zero assignments needed (already done eagerly)
     layer_bounds = ss_init.prefilter.output_bounds.layer_bounds
 
+    # print(f". layer bounds {layer_num}:\n{layer_bounds}")
+    # print(f".overapprox, star set input bounds: {ss_init.star.get_input_box_bounds()}")
+
     # run first layer with existing bounds
     for s in sets:
         s.execute_with_bounds(layer_num, layer_bounds, split_indices, zero_indices)
@@ -417,13 +438,8 @@ def run_overapprox_round(network, ss_init, sets, prerelu_sims, check_cancel_func
             and Settings.PRINT_OVERAPPROX_OUTPUT
         ):
             layer_start = time.perf_counter()
-            extra = ""
-
-            if isinstance(sets[0], ZonoOverapprox):
-                extra = f" (zono shape: {sets[0].zono.mat_t.shape})"
-
             print(
-                f"Layer {layer_index + 1}/{len(remaining_layers)}: {type(layer).__name__}{extra}...",
+                f"Layer {layer_index + 1}/{len(remaining_layers)}: {type(layer).__name__}...",
                 end="",
                 flush=True,
             )
@@ -451,6 +467,8 @@ def run_overapprox_round(network, ss_init, sets, prerelu_sims, check_cancel_func
                 layer_bounds, split_indices = s.tighten_bounds(
                     layer_bounds, split_indices, sim, check_cancel_func, depth
                 )
+
+            # print(f". layer bounds {layer_num}:\n{layer_bounds}")
 
             # bounds are now as tight as they will get
             if split_indices is None:
