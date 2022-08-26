@@ -1,18 +1,17 @@
-"""
+'''
 Stanley Bak
 Specification container object
-"""
+'''
 
 import time
 
 import numpy as np
 
-from nnenum.timerutil import Timers
 from nnenum.util import Freezable
-
+from nnenum.timerutil import Timers
 
 class DisjunctiveSpec(Freezable):
-    "disjunctive specification"
+    'disjunctive specification'
 
     def __init__(self, spec_list):
         # unsafe is any of the specs is unsafe
@@ -20,9 +19,7 @@ class DisjunctiveSpec(Freezable):
         assert spec_list, "spec_list must have > 0 Specficiation objects"
 
         for spec in spec_list:
-            assert isinstance(
-                spec, Specification
-            ), "expected flat (non-nested) DisjunctiveSpec"
+            assert isinstance(spec, Specification), "expected flat (non-nested) DisjunctiveSpec"
 
         self.spec_list = spec_list
 
@@ -46,12 +43,12 @@ class DisjunctiveSpec(Freezable):
         return s
 
     def get_num_expected_variables(self):
-        "get the number of expected variables for this spec"
+        'get the number of expected variables for this spec'
 
         return self.spec_list[0].get_num_expected_variables()
 
     def is_violation(self, state):
-        "does this concrete state violate the specification?"
+        'does this concrete state violate the specification?'
 
         rv = False
 
@@ -61,19 +58,19 @@ class DisjunctiveSpec(Freezable):
                 break
 
         return rv
-
+    
     def distance(self, state):
-        """get the minimum distance (l-1 norm) between this state and the boundary of the unsafe states
+        '''get the minimum distance (l-1 norm) between this state and the boundary of the unsafe states
         0 = violation
-        """
+        '''
 
         return min([spec.distance(state) for spec in self.spec_list])
 
     def zono_might_violate_spec(self, zono):
-        """is it possible that the zonotope violates the spec?
+        '''is it possible that the zonotope violates the spec?
 
         returns True or False
-        """
+        '''
 
         # strategy: check if each row individually can have a violation... necessary condition for intersection
 
@@ -86,15 +83,13 @@ class DisjunctiveSpec(Freezable):
 
         return rv
 
-    def get_violation_star(
-        self, lp_star, safe_spec_list=None, normalize=True, domain_contraction=True
-    ):
-        """does this lp_star violate the spec?
+    def get_violation_star(self, lp_star, safe_spec_list=None, normalize=True, domain_contraction=True):
+        '''does this lp_star violate the spec?
 
         if so, return a new, non-empty star object with the violation region
-        """
+        '''
 
-        Timers.tic("disjunctive.get_violation_star")
+        Timers.tic('disjunctive.get_violation_star')
 
         res = None
 
@@ -102,21 +97,18 @@ class DisjunctiveSpec(Freezable):
             if safe_spec_list is not None and safe_spec_list[i]:
                 # skip parts of the disjunctive spec that are already safe
                 continue
-
-            res = spec.get_violation_star(
-                lp_star, normalize=normalize, domain_contraction=domain_contraction
-            )
+            
+            res = spec.get_violation_star(lp_star, normalize=normalize, domain_contraction=domain_contraction)
 
             if res is not None:
                 break
+            
+        Timers.toc('disjunctive.get_violation_star')
 
-        Timers.toc("disjunctive.get_violation_star")
-
-        return res
-
+        return res            
 
 class Specification(Freezable):
-    "specification container"
+    'specification container'
 
     def __init__(self, mat, rhs):
         # unsafe if there is some state where, mat * state <= rhs
@@ -148,12 +140,12 @@ class Specification(Freezable):
         return s
 
     def get_num_expected_variables(self):
-        "get the number of expected variables for this spec"
+        'get the number of expected variables for this spec'
 
         return self.mat.shape[1]
 
     def is_violation(self, state, tol_rhs=0.0):
-        "does this concrete state violate the specification?"
+        'does this concrete state violate the specification?'
 
         res = np.dot(self.mat, state)
 
@@ -167,9 +159,9 @@ class Specification(Freezable):
         return rv
 
     def distance(self, state):
-        """get the minimum distance (l-inf norm) between this state and the boundary of the unsafe states
+        '''get the minimum distance (l-inf norm) between this state and the boundary of the unsafe states
         0 = violation
-        """
+        '''
 
         res = np.dot(self.mat, state)
         rv = -np.inf
@@ -180,47 +172,45 @@ class Specification(Freezable):
         return rv
 
     def zono_might_violate_spec(self, zono):
-        """is it possible that the zonotope violates the spec?
+        '''is it possible that the zonotope violates the spec?
 
         sometimes we can prove it's impossible. If this returns True, though, it doesn't mean there's an
         intersection (except in the case of single-row specifications)
 
         returns True or False
-        """
+        '''
 
         # strategy: check if each row individually can have a violation... necessary condition for intersection
 
-        Timers.tic("zono_might_violate_spec")
+        Timers.tic('zono_might_violate_spec')
 
         might_violate = True
 
         for i, row in enumerate(self.mat):
             min_dot = zono.minimize_val(row)
-
+            
             if min_dot > self.rhs[i]:
                 might_violate = False
                 break
 
-        Timers.toc("zono_might_violate_spec")
+        Timers.toc('zono_might_violate_spec')
 
         return might_violate
 
-    def get_violation_star(
-        self, lp_star, safe_spec_list=None, normalize=True, domain_contraction=True
-    ):
-        """does this lp_star violate the spec?
+    def get_violation_star(self, lp_star, safe_spec_list=None, normalize=True, domain_contraction=True):
+        '''does this lp_star violate the spec?
 
         if so, return a new, non-empty star object with the violation region
-        """
+        '''
 
         assert safe_spec_list is None, "single spec doesn't expect safe_spec_list"
 
-        Timers.tic("get_violation_star")
+        Timers.tic('get_violation_star')
         rv = None
 
         # constructing a new star and do exact check
         copy = lp_star.copy()
-
+        
         # add constraints on the outputs
 
         # output = a_mat.tranpose * input_col
@@ -249,15 +239,15 @@ class Specification(Freezable):
         else:
             is_violation = True
             rv = copy
-            # woutput = np.dot(copy.a_mat, winput) + copy.bias
-            # assert self.is_violation(woutput), f"witness output {woutput} was not a violation of {self}"
+            #woutput = np.dot(copy.a_mat, winput) + copy.bias
+            #assert self.is_violation(woutput), f"witness output {woutput} was not a violation of {self}"
 
             # also comput input box bounds
             if domain_contraction:
-                Timers.tic("violation_update_input_box_bounds")
+                Timers.tic('violation_update_input_box_bounds')
                 rv.update_input_box_bounds(hs_list, rhs_list)
-                Timers.toc("violation_update_input_box_bounds")
+                Timers.toc('violation_update_input_box_bounds')
 
-        Timers.toc("get_violation_star")
+        Timers.toc('get_violation_star')
 
         return rv if is_violation else None
