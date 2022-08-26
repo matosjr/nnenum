@@ -1,8 +1,8 @@
-'''
+"""
 Measurement script for ACAS Xu networks. Runs all benchmarks and produces a summary file in the results folder.
 
 Stanley Bak, 2020
-'''
+"""
 
 import sys
 import time
@@ -11,13 +11,14 @@ import subprocess
 
 from termcolor import cprint
 
+
 def main():
-    'main entry point'
+    "main entry point"
 
     start = time.time()
 
-    full_filename = 'results/full_acasxu.dat'
-    hard_filename = 'results/hard_acasxu.dat'
+    full_filename = "results/full_acasxu.dat"
+    hard_filename = "results/hard_acasxu.dat"
     timeout = 600.0
 
     if len(sys.argv) > 1:
@@ -38,16 +39,18 @@ def main():
     instances.append(["3", "3", "9"])
     instances.append(["4", "5", "10"])
 
-    acasxu_hard = [["4", "6", "1"],
-                   ["4", "8", "1"],
-                   ["3", "3", "2"],
-                   ["4", "2", "2"],
-                   ["4", "9", "2"],
-                   ["5", "3", "2"],
-                   ["3", "6", "3"],
-                   ["5", "1", "3"],
-                   ["1", "9", "7"],
-                   ["3", "3", "9"]]
+    acasxu_hard = [
+        ["4", "6", "1"],
+        ["4", "8", "1"],
+        ["3", "3", "2"],
+        ["4", "2", "2"],
+        ["4", "9", "2"],
+        ["5", "3", "2"],
+        ["3", "6", "3"],
+        ["5", "1", "3"],
+        ["1", "9", "7"],
+        ["3", "3", "9"],
+    ]
 
     Path("./results").mkdir(parents=True, exist_ok=True)
 
@@ -60,7 +63,9 @@ def main():
                 res_str = "none"
                 secs = -1
 
-                cprint(f"\nRunning net {a_prev}-{tau} with spec {spec}", "grey", "on_green")
+                cprint(
+                    f"\nRunning net {a_prev}-{tau} with spec {spec}", "grey", "on_green"
+                )
 
                 res_str, secs = verify_acasxu(net_pair, spec, timeout)
 
@@ -77,29 +82,39 @@ def main():
 
     print(f"Completed all measurements in {round(mins, 2)} minutes")
 
+
 def verify_acasxu(net_pair, spec, timeout):
-    'returns res_str, secs'
+    "returns res_str, secs"
 
     prev, tau = net_pair
 
-    onnx_path = f'./data/ACASXU_run2a_{prev}_{tau}_batch_2000.onnx'
-    spec_path = f'./data/prop_{spec}.vnnlib'
+    onnx_path = f"./data/ACASXU_run2a_{prev}_{tau}_batch_2000.onnx"
+    spec_path = f"./data/prop_{spec}.vnnlib"
 
-    args = [sys.executable, '-m', 'nnenum.nnenum', onnx_path, spec_path, f'{timeout}', 'out.txt']
+    args = [
+        sys.executable,
+        "-m",
+        "nnenum.nnenum",
+        onnx_path,
+        spec_path,
+        f"{timeout}",
+        "out.txt",
+    ]
 
     start = time.perf_counter()
 
     result = subprocess.run(args, check=False)
 
     if result.returncode == 0:
-        with open('out.txt', 'r') as f:
+        with open("out.txt", "r") as f:
             res_str = f.readline()
     else:
-        res_str = 'error_exit_code_{result.returncode}'
+        res_str = "error_exit_code_{result.returncode}"
 
     diff = time.perf_counter() - start
 
     return res_str, diff
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

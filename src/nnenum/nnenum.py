@@ -1,11 +1,11 @@
-'''
+"""
 nnenum vnnlib front end
 
 usage: "python3 nnenum.py <onnx_file> <vnnlib_file> [timeout=None] [outfile=None]"
 
 Stanley Bak
 June 2021
-'''
+"""
 
 import sys
 
@@ -18,11 +18,12 @@ from nnenum.onnx_network import load_onnx_network_optimized, load_onnx_network
 from nnenum.specification import Specification, DisjunctiveSpec
 from nnenum.vnnlib import get_num_inputs_outputs, read_vnnlib_simple
 
+
 def make_spec(vnnlib_filename, onnx_filename):
-    '''make Specification
+    """make Specification
 
     returns a pair: (list of [box, Specification], inp_dtype)
-    '''
+    """
 
     num_inputs, num_outputs, inp_dtype = get_num_inputs_outputs(onnx_filename)
     vnnlib_spec = read_vnnlib_simple(vnnlib_filename, num_inputs, num_outputs)
@@ -41,8 +42,9 @@ def make_spec(vnnlib_filename, onnx_filename):
 
     return rv, inp_dtype
 
+
 def set_control_settings():
-    'set settings for smaller control benchmarks'
+    "set settings for smaller control benchmarks"
 
     Settings.TIMING_STATS = False
     Settings.PARALLEL_ROOT_LP = False
@@ -61,8 +63,9 @@ def set_control_settings():
     Settings.OVERAPPROX_LP_TIMEOUT = 0.02
     Settings.OVERAPPROX_MIN_GEN_LIMIT = 70
 
+
 def set_exact_settings():
-    'set settings for smaller control benchmarks'
+    "set settings for smaller control benchmarks"
 
     Settings.TIMING_STATS = True
     Settings.TRY_QUICK_OVERAPPROX = False
@@ -75,28 +78,32 @@ def set_exact_settings():
 
     Settings.BRANCH_MODE = Settings.BRANCH_EXACT
 
+
 def set_image_settings():
-    'set settings for larger image benchmarks'
+    "set settings for larger image benchmarks"
 
     Settings.COMPRESS_INIT_BOX = True
     Settings.BRANCH_MODE = Settings.BRANCH_OVERAPPROX
     Settings.TRY_QUICK_OVERAPPROX = False
-    
+
     Settings.OVERAPPROX_MIN_GEN_LIMIT = np.inf
     Settings.SPLIT_IF_IDLE = False
     Settings.OVERAPPROX_LP_TIMEOUT = np.inf
     Settings.TIMING_STATS = True
 
     # contraction doesn't help in high dimensions
-    #Settings.OVERAPPROX_CONTRACT_ZONO_LP = False
+    # Settings.OVERAPPROX_CONTRACT_ZONO_LP = False
     Settings.CONTRACT_ZONOTOPE = False
     Settings.CONTRACT_ZONOTOPE_LP = False
 
+
 def main():
-    'main entry point'
+    "main entry point"
 
     if len(sys.argv) < 3:
-        print('usage: "python3 nnenum.py <onnx_file> <vnnlib_file> [timeout=None] [outfile=None] [processes=<auto>]"')
+        print(
+            'usage: "python3 nnenum.py <onnx_file> <vnnlib_file> [timeout=None] [outfile=None] [processes=<auto>]"'
+        )
         sys.exit(1)
 
     onnx_filename = sys.argv[1]
@@ -128,7 +135,7 @@ def main():
         # cannot do optimized load due to unsupported layers
         network = load_onnx_network(onnx_filename)
 
-    result_str = 'none' # gets overridden
+    result_str = "none"  # gets overridden
 
     num_inputs = len(spec_list[0][0])
 
@@ -150,7 +157,7 @@ def main():
 
         if timeout is not None:
             if timeout <= 0:
-                result_str = 'timeout'
+                result_str = "timeout"
                 break
 
             Settings.TIMEOUT = timeout
@@ -166,21 +173,21 @@ def main():
             break
 
     # rename for VNNCOMP21:
-        
+
     if result_str == "safe":
         result_str = "holds"
     elif "unsafe" in result_str:
         result_str = "violated"
 
     if outfile is not None:
-        with open(outfile, 'w') as f:
+        with open(outfile, "w") as f:
             f.write(result_str)
-            
-    #print(result_str)
 
-    if result_str == 'error':
-        sys.exit(Result.results.index('error'))
+    # print(result_str)
+
+    if result_str == "error":
+        sys.exit(Result.results.index("error"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
