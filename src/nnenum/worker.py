@@ -11,17 +11,16 @@ import time
 
 import numpy as np
 
-from nnenum.timerutil import Timers
+from nnenum.network import nn_flatten, nn_unflatten
 from nnenum.overapprox import (
+    OverapproxCanceledException,
     do_overapprox_rounds,
     make_prerelu_sims,
-    OverapproxCanceledException,
 )
-from nnenum.settings import Settings
-from nnenum.util import Freezable, to_time_str
-from nnenum.network import nn_unflatten, nn_flatten
-
 from nnenum.prefilter import LpCanceledException
+from nnenum.settings import Settings
+from nnenum.timerutil import Timers
+from nnenum.util import Freezable, to_time_str
 
 
 class Worker(Freezable):

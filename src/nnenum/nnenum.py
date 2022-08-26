@@ -12,10 +12,10 @@ import sys
 import numpy as np
 
 from nnenum.enumerate import enumerate_network
-from nnenum.settings import Settings
+from nnenum.onnx_network import load_onnx_network, load_onnx_network_optimized
 from nnenum.result import Result
-from nnenum.onnx_network import load_onnx_network_optimized, load_onnx_network
-from nnenum.specification import Specification, DisjunctiveSpec
+from nnenum.settings import Settings
+from nnenum.specification import DisjunctiveSpec, Specification
 from nnenum.vnnlib import get_num_inputs_outputs, read_vnnlib_simple
 
 

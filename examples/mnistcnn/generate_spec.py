@@ -6,13 +6,12 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import onnx
 import onnxruntime as ort
 
-import numpy as np
-
-from nnenum.onnx_network import load_onnx_network
 from nnenum.network import nn_flatten
+from nnenum.onnx_network import load_onnx_network
 
 
 def load_unscaled_images(filename, specific_image=None, epsilon=0.0):

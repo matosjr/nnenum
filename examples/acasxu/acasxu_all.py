@@ -4,10 +4,10 @@ Measurement script for ACAS Xu networks. Runs all benchmarks and produces a summ
 Stanley Bak, 2020
 """
 
+import subprocess
 import sys
 import time
 from pathlib import Path
-import subprocess
 
 from termcolor import cprint
 

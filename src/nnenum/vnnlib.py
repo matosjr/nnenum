@@ -5,13 +5,12 @@ Stanley Bak
 June 2021
 """
 
-from copy import deepcopy
 import re
+from copy import deepcopy
 
 import numpy as np
-
-import onnxruntime as ort
 import onnx
+import onnxruntime as ort
 
 
 def read_statements(vnnlib_filename):
