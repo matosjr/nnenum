@@ -284,7 +284,7 @@ class Prefilter(Freezable):
             Settings.TEST_FUNC_BEFORE_ASSIGNMENT()
 
         zero_indices = np.nonzero(
-            self.output_bounds.layer_bounds[:, 1] <= Settings.SPLIT_TOLERANCE
+            self.output_bounds.layer_bounds[:, 1] < -Settings.SPLIT_TOLERANCE
         )[0]
         self.assign_zeros(star, zero_indices)
 

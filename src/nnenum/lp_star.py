@@ -197,19 +197,16 @@ class LpStar(Freezable):
 
         print("Warning: check_input_box_bounds_slow called")
 
-        cur_bounds = self.get_input_box_bounds()
-
         dims = self.lpi.get_num_cols()
         should_skip = np.zeros((dims, 2), dtype=bool)
         correct_bounds_list = self.update_input_box_bounds_old(None, should_skip)
 
+        cur_bounds = self.get_input_box_bounds()
+
         for d, min_val, max_val in correct_bounds_list:
-            assert (
-                abs(min_val - cur_bounds[d][0]) < 1e-5
-            ), f"dim {d} min was {cur_bounds[d][0]}, should be {min_val}"
-            assert (
-                abs(max_val - cur_bounds[d][1]) < 1e-5
-            ), f"dim {d} max was {cur_bounds[d][1]}, should be {max_val}"
+
+            assert abs(min_val - cur_bounds[d][0]) < 1e-5
+            assert abs(max_val - cur_bounds[d][1]) < 1e-5
 
     def get_input_box_bounds(self):
         "gets the input box bounds from witnesses"
@@ -472,7 +469,7 @@ class LpStar(Freezable):
 
         return [i, o]
 
-    def minimize_vec(self, vec, return_io=False, fail_on_unsat=True):
+    def minimize_vec(self, vec, return_io=False):
         """optimize over this set
 
         vec is the vector of outputs we're optimizing over, None means use zero vector
@@ -512,29 +509,25 @@ class LpStar(Freezable):
             # Timers.toc('setup')
 
             # Timers.tic('lpi.minimize')
-            lp_result = self.lpi.minimize(lp_vec, fail_on_unsat=fail_on_unsat)
+            lp_result = self.lpi.minimize(lp_vec)
+            if lp_result.dtype != dtype:
+                lp_result = lp_result.astype(dtype)
 
-            if lp_result is None:
-                rv = None
-            else:
-                if lp_result.dtype != dtype:
-                    lp_result = lp_result.astype(dtype)
+            self.last_lp_result = lp_result
 
-                self.last_lp_result = lp_result
+            self.num_lps += 1
+            # Timers.toc('lpi.minimize')
+            assert len(lp_result) == num_init_vars
 
-                self.num_lps += 1
-                # Timers.toc('lpi.minimize')
-                assert len(lp_result) == num_init_vars
+            # print("--------")
+            # print(f"lp_result: {lp_result}")
 
-                # print("--------")
-                # print(f"lp_result: {lp_result}")
-
-                # Timers.tic('a_mat mult')
-                rv = np.dot(self.a_mat, lp_result) + self.bias
-                # Timers.toc('a_mat mult')
+            # Timers.tic('a_mat mult')
+            rv = np.dot(self.a_mat, lp_result) + self.bias
+            # Timers.toc('a_mat mult')
 
         # return input as well
-        if rv is not None and return_io:
+        if return_io:
             rv = [lp_result, rv]
 
         Timers.toc("star.minimize_vec")

@@ -11,6 +11,7 @@ import time
 
 import numpy as np
 
+from nnenum.agen import AgenState
 from nnenum.network import nn_flatten, nn_unflatten
 from nnenum.overapprox import (
     OverapproxCanceledException,
@@ -19,6 +20,7 @@ from nnenum.overapprox import (
 )
 from nnenum.prefilter import LpCanceledException
 from nnenum.settings import Settings
+from nnenum.specification import DisjunctiveSpec
 from nnenum.timerutil import Timers
 from nnenum.util import Freezable, to_time_str
 
@@ -138,6 +140,71 @@ class Worker(Freezable):
                 f"{self.priv.ss.branch_str()} ({label})"
             )
 
+    def try_seeded_adversarial(self, dims, abstract_ios):
+        """
+        generate adversarial image from abstract counterexample seeds
+
+        returns concrete_io_tuple or None
+        """
+
+        Timers.tic("try_seeded_adversarial")
+
+        assert dims == Settings.ADVERSARIAL_ORIG_IMAGE.size
+
+        for cinput, _ in abstract_ios:
+
+            seed_image = nn_unflatten(
+                cinput[:dims], Settings.ADVERSARIAL_ORIG_IMAGE.shape
+            )
+
+            concrete_io_tuple = None
+
+            onnx_path = Settings.ADVERSARIAL_ONNX_PATH
+            assert onnx_path is not None
+
+            if self.priv.agen is None:
+                # initialize
+                ep = Settings.ADVERSARIAL_EPSILON
+                im = Settings.ADVERSARIAL_ORIG_IMAGE
+                l = Settings.ADVERSARIAL_ORIG_LABEL
+
+                Timers.tic("AgenState init")
+                self.priv.agen = AgenState(onnx_path, im, l, ep)
+                Timers.toc("AgenState init")
+
+            a = self.priv.agen.try_seeded(seed_image)
+
+            if a is not None:
+                aimage, ep = a
+
+                if Settings.PRINT_OUTPUT:
+                    print(f"try_seeded_adversarial found violation image with ep={ep}")
+            else:
+                aimage = None
+
+            if aimage is not None:
+                flat_image = nn_flatten(aimage)
+
+                output = self.shared.network.execute(flat_image)
+                flat_output = np.ravel(output)
+
+                olabel = np.argmax(output)
+                confirmed = olabel != Settings.ADVERSARIAL_ORIG_LABEL
+
+                if Settings.PRINT_OUTPUT:
+                    print(
+                        f"Original label: {Settings.ADVERSARIAL_ORIG_LABEL}, output argmax: {olabel}"
+                    )
+                    print(f"counterexample was confirmed: {confirmed}")
+
+                if confirmed:
+                    concrete_io_tuple = (flat_image, flat_output)
+                    break
+
+        Timers.toc("try_seeded_adversarial")
+
+        return concrete_io_tuple
+
     def consider_overapprox(self):
         """conditionally run overapprox analysis
 
@@ -243,12 +310,15 @@ class Worker(Freezable):
                         prerelu_sims,
                         check_cancel_func,
                         gen_limit,
+                        try_seeded_adversarial=self.try_seeded_adversarial,
                         overapprox_types=otypes,
                     )
 
                     if res.concrete_io_tuple is not None:
                         if Settings.PRINT_OUTPUT:
-                            print("\nviolation star found a confirmed counterexample.")
+                            print(
+                                "\nviolation star found adversarial was a confirmed counterexample."
+                            )
                             print(
                                 f"\nUnsafe Base Branch: {self.priv.ss.branch_str()} (Mode: {Settings.BRANCH_MODE})"
                             )
@@ -743,7 +813,9 @@ class Worker(Freezable):
             if branch_list_in_branch_tuples(exec_branch_list, branch_tuples):
                 rv = full_cinput_flat, exec_output
             else:
-                # print(". weakly-tested code: couldn't confirm countereample... tightening constraints")
+                print(
+                    ". weakly-tested code: couldn't confirm countereample... tightening constraints"
+                )
 
                 # try to make each of the constraints a little tighter
                 star_copy = star.copy()
@@ -762,9 +834,7 @@ class Worker(Freezable):
 
                     star_copy.lpi.set_rhs(rhs)
 
-                    res = star_copy.minimize_vec(
-                        None, return_io=True, fail_on_unsat=False
-                    )
+                    res = star_copy.minimize_vec(None, return_io=True)
 
                     if res is None:
                         # infeasible
